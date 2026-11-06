@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stock Inventory System</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <h1>Stock<span>Wise</span></h1>
+      <p class="muted">Inventory & Sales</p>
+      <nav>
+        <a class="active" href="index.html">Dashboard</a>
+        <a href="pages/products.html">Products</a>
+        <a href="pages/sales.html">Sales</a>
+        <a href="pages/reports.html">Reports</a>
+      </nav>
+      <p class="sidebar-note">Frontend starter</p>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">OVERVIEW</p>
+          <h2>Dashboard</h2>
+        </div>
+        <span class="user-chip">Administrator</span>
+      </header>
+
+      <section class="welcome">
+        <div>
+          <p class="eyebrow">STOCK INVENTORY SYSTEM</p>
+          <h3>Welcome back</h3>
+          <p class="muted">Here is a quick look at your store.</p>
+        </div>
+        <span class="date-label" id="today"></span>
+      </section>
+
+      <section class="stats-grid" aria-label="Business summary">
+        <article class="stat-card"><p>Total products</p><strong>128</strong><small>Sample data</small></article>
+        <article class="stat-card"><p>Today's sales</p><strong>GH₵ 2,450</strong><small>Sample data</small></article>
+        <article class="stat-card"><p>Estimated gross profit</p><strong>GH₵ 620</strong><small>Sample data</small></article>
+        <article class="stat-card warning"><p>Low-stock products</p><strong>7</strong><small>Sample data</small></article>
+      </section>
+
+      <section class="content-grid">
+        <article class="panel">
+          <div class="panel-heading"><h3>Recent activity</h3><span class="muted">Demo information</span></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Product</th><th>Activity</th><th>Quantity</th><th>Status</th></tr></thead>
+              <tbody>
+                <tr><td>Rice 5kg</td><td>Sale</td><td>2</td><td><span class="status">Recorded</span></td></tr>
+                <tr><td>Cooking oil 1L</td><td>Stock received</td><td>20</td><td><span class="status">Received</span></td></tr>
+                <tr><td>Sugar 1kg</td><td>Sale</td><td>3</td><td><span class="status">Recorded</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+        <article class="panel">
+          <h3>Getting started</h3>
+          <ol class="steps">
+            <li>Build the product and sales screens.</li>
+            <li>Agree on endpoints in <code>docs/API.md</code>.</li>
+            <li>Connect the frontend to the backend.</li>
+          </ol>
+          <p class="notice">Numbers on this page are placeholders, not live business records.</p>
+        </article>
+      </section>
+    </main>
+  </div>
+  <script src="js/app.js"></script>
+</body>
+</html>
