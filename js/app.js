@@ -137,7 +137,7 @@ async function loadReports() {
 async function bootApp() {
   try { currentUser = await apiRequest("/auth/me"); }
   catch { window.location.replace(`${root}login.html`); return; }
-  if (page === "reports" && currentUser.role !== "administrator") { window.location.replace(`${root}index.html`); return; }
+  if (page === "reports" && currentUser.role !== "administrator") { window.location.replace(`${root}dashboard.html`); return; }
 
   const profile = document.querySelector(".sidebar-bottom");
   if (profile) {
@@ -153,7 +153,8 @@ async function bootApp() {
   const controls = document.createElement("div"); controls.className = "auth-controls";
   const status = await apiRequest("/auth/status");
   if (status.managerRegistrationOpen) {
-    const managerLink = document.createElement("a"); managerLink.className = "button button-light"; managerLink.href = `${root}signup.html`; managerLink.textContent = "＋ Register sales manager"; controls.append(managerLink);
+    const managerLink = document.createElement("a"); managerLink.className = "button button-light"; managerLink.href = `${root}signup.html?role=sales_manager`; managerLink.textContent = "＋ Register sales manager"; controls.append(managerLink);
+    const adminLink = document.createElement("a"); adminLink.className = "button button-light"; adminLink.href = `${root}signup.html?role=administrator`; adminLink.textContent = "＋ Register administrator"; controls.append(adminLink);
   }
   const identity = document.createElement("span"); identity.className = "signed-in-user"; identity.innerHTML = `<strong>${esc(currentUser.name)}</strong><small>${currentUser.role === "administrator" ? "Administrator" : "Sales manager"}</small>`;
   const logout = document.createElement("button"); logout.type = "button"; logout.className = "button button-light"; logout.textContent = "Log out";

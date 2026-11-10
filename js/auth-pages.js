@@ -5,12 +5,12 @@ function clearAuthMessage() { authMessage.hidden = true; }
 async function initLogin() {
   const status = await apiRequest("/auth/status");
   if (status.setupRequired) { window.location.replace("/signup.html"); return; }
-  if (status.user) { window.location.replace("/"); return; }
+  if (status.user) { window.location.replace("/dashboard.html"); return; }
   document.querySelector("#login-form").addEventListener("submit", async event => {
     event.preventDefault(); clearAuthMessage();
     const data = Object.fromEntries(new FormData(event.currentTarget));
     const button = event.currentTarget.querySelector("button"); button.disabled = true;
-    try { await apiRequest("/auth/login", { method: "POST", body: JSON.stringify(data) }); window.location.replace("/"); }
+    try { await apiRequest("/auth/login", { method: "POST", body: JSON.stringify(data) }); window.location.replace("/dashboard.html"); }
     catch (error) { showAuthMessage(error.message); }
     finally { button.disabled = false; }
   });
@@ -19,21 +19,32 @@ async function initLogin() {
 async function initSignup() {
   const status = await apiRequest("/auth/status");
   if (!status.setupRequired && !status.managerRegistrationOpen) { window.location.replace(status.user ? "/" : "/login.html"); return; }
-  const isManager = !status.setupRequired;
   const roleField = document.querySelector("#signup-role");
   const shopField = document.querySelector("#shop-name");
+  const requestedRole = new URLSearchParams(window.location.search).get("role");
+  const role = status.setupRequired ? "administrator" : requestedRole === "administrator" ? "administrator" : "sales_manager";
+  const isManager = role === "sales_manager";
   if (isManager) {
     document.querySelector("#signup-eyebrow").textContent = "TEAM ACCOUNT";
-    document.querySelector("#signup-title").textContent = "Register the sales manager";
-    document.querySelector("#signup-copy").textContent = "Add a sales manager to your shop team.";
+    document.querySelector("#signup-title").textContent = "Register a sales manager";
+    document.querySelector("#signup-copy").textContent = "Add another sales manager to your shop team.";
     document.querySelector('#signup-form button[type="submit"]').textContent = "Register sales manager";
     roleField.value = "sales_manager";
     roleField.querySelector('[value="administrator"]').disabled = true;
-    shopField.value = status.shopName;
-    shopField.readOnly = Boolean(status.shopName);
+  } else if (!status.setupRequired) {
+    document.querySelector("#signup-eyebrow").textContent = "TEAM ACCOUNT";
+    document.querySelector("#signup-title").textContent = "Register an administrator";
+    document.querySelector("#signup-copy").textContent = "Add an administrator account to your shop team.";
+    document.querySelector('#signup-form button[type="submit"]').textContent = "Register administrator";
+    roleField.value = "administrator";
+    roleField.querySelector('[value="sales_manager"]').disabled = true;
   } else {
     roleField.value = "administrator";
     roleField.querySelector('[value="sales_manager"]').disabled = true;
+  }
+  if (!status.setupRequired) {
+    shopField.value = status.shopName;
+    shopField.readOnly = Boolean(status.shopName);
   }
   document.querySelector("#signup-form").addEventListener("submit", async event => {
     event.preventDefault(); clearAuthMessage();
@@ -41,7 +52,7 @@ async function initSignup() {
     if (data.password !== data.confirmPassword) { showAuthMessage("The passwords do not match."); return; }
     delete data.confirmPassword;
     const button = form.querySelector("button"); button.disabled = true;
-    try { await apiRequest("/auth/signup", { method: "POST", body: JSON.stringify(data) }); window.location.replace("/"); }
+    try { await apiRequest("/auth/signup", { method: "POST", body: JSON.stringify(data) }); window.location.replace("/dashboard.html"); }
     catch (error) { showAuthMessage(error.message); }
     finally { button.disabled = false; }
   });

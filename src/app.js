@@ -69,9 +69,9 @@ app.use(asyncRoute(async (req, _res, next) => {
 
 app.get("/api/health", (_req, res) => res.json({ status: "ok", message: "Stock inventory API is running" }));
 app.get("/api/auth/status", asyncRoute(async (req, res) => {
-  const { rows } = await pool.query("SELECT EXISTS(SELECT 1 FROM users WHERE role = 'administrator') AS admin_exists, EXISTS(SELECT 1 FROM users WHERE role = 'sales_manager') AS manager_exists, (SELECT shop_name FROM store_settings WHERE singleton = TRUE) AS shop_name");
+  const { rows } = await pool.query("SELECT EXISTS(SELECT 1 FROM users WHERE role = 'administrator') AS admin_exists, (SELECT shop_name FROM store_settings WHERE singleton = TRUE) AS shop_name");
   const state = rows[0];
-  res.json({ setupRequired: !state.admin_exists, managerRegistrationOpen: req.user?.role === "administrator" && !state.manager_exists, shopName: state.shop_name || "", user: req.user ? publicUser(req.user) : null });
+  res.json({ setupRequired: !state.admin_exists, managerRegistrationOpen: req.user?.role === "administrator", shopName: state.shop_name || "", user: req.user ? publicUser(req.user) : null });
 }));
 app.get("/api/auth/me", (req, res) => req.user ? res.json(publicUser(req.user)) : res.status(401).json({ error: "Please log in." }));
 
@@ -89,23 +89,24 @@ app.post("/api/auth/signup", asyncRoute(async (req, res) => {
   const client = await pool.connect();
   let user;
   let role;
+  let initialAdministrator = false;
   try {
     await client.query("BEGIN");
     await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [74190261]);
     const { rows: users } = await client.query("SELECT id, role FROM users");
     const adminExists = users.some(candidate => candidate.role === "administrator");
-    const managerExists = users.some(candidate => candidate.role === "sales_manager");
     const settings = await client.query("SELECT shop_name FROM store_settings WHERE singleton = TRUE");
     const existingShopName = settings.rows[0]?.shop_name || "";
     if (!adminExists && users.length === 0 && requestedRole === "administrator") {
       role = "administrator";
+      initialAdministrator = true;
       await client.query("INSERT INTO store_settings (singleton, shop_name) VALUES (TRUE, $1) ON CONFLICT (singleton) DO UPDATE SET shop_name = EXCLUDED.shop_name", [shopName]);
-    } else if (adminExists && !managerExists && req.user?.role === "administrator" && requestedRole === "sales_manager" && (!existingShopName || shopName.toLowerCase() === existingShopName.toLowerCase())) {
-      role = "sales_manager";
+    } else if (adminExists && req.user?.role === "administrator" && ["administrator", "sales_manager"].includes(requestedRole) && (!existingShopName || shopName.toLowerCase() === existingShopName.toLowerCase())) {
+      role = requestedRole;
       if (!existingShopName) await client.query("INSERT INTO store_settings (singleton, shop_name) VALUES (TRUE, $1) ON CONFLICT (singleton) DO NOTHING", [shopName]);
     } else {
       await client.query("ROLLBACK");
-      return res.status(403).json({ error: adminExists ? "Only the administrator can register the sales manager, and that account may only be created once." : "Account setup is unavailable." });
+      return res.status(403).json({ error: adminExists ? "Only an administrator can register accounts for this shop." : "Account setup is unavailable." });
     }
     const userId = `U-${crypto.randomUUID()}`;
     const { rows } = await client.query("INSERT INTO users (id, name, contact, contact_type, role, password_hash) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, name, contact, role, created_at", [userId, name, contact.value, contact.type, role, hashPassword(password)]);
@@ -118,7 +119,7 @@ app.post("/api/auth/signup", asyncRoute(async (req, res) => {
   } finally {
     client.release();
   }
-  if (role === "administrator") setSession(res, user);
+  if (initialAdministrator) setSession(res, user);
   res.status(201).json({ user: publicUser(user), role });
 }));
 
@@ -259,20 +260,22 @@ app.get("/api/dashboard/summary", asyncRoute(async (req, res) => {
 app.get("/api/reports/summary", requireRole("administrator"), asyncRoute(async (_req, res) => res.json(await buildSummary())));
 
 app.use(asyncRoute(async (req, res, next) => {
-  if (req.method !== "GET" || (req.path !== "/" && !req.path.endsWith(".html"))) return next();
-  const { rows } = await pool.query("SELECT EXISTS(SELECT 1 FROM users WHERE role = 'administrator') AS admin_exists, EXISTS(SELECT 1 FROM users WHERE role = 'sales_manager') AS manager_exists");
-  const { admin_exists: adminExists, manager_exists: managerExists } = rows[0];
+  if (req.method !== "GET") return next();
+  if (req.path === "/" || req.path === "/index.html") return req.user ? res.redirect("/dashboard.html") : next();
+  if (!req.path.endsWith(".html")) return next();
+  const { rows } = await pool.query("SELECT EXISTS(SELECT 1 FROM users WHERE role = 'administrator') AS admin_exists");
+  const { admin_exists: adminExists } = rows[0];
   if (req.path === "/login.html") {
-    if (req.user) return res.redirect("/");
+    if (req.user) return res.redirect("/dashboard.html");
     if (!adminExists) return res.redirect("/signup.html");
     return next();
   }
   if (req.path === "/signup.html") {
-    if (!adminExists || (req.user?.role === "administrator" && !managerExists)) return next();
+    if (!adminExists || req.user?.role === "administrator") return next();
     return res.redirect(req.user ? "/" : "/login.html");
   }
   if (!req.user) return res.redirect(adminExists ? "/login.html" : "/signup.html");
-  if (req.path === "/pages/reports.html" && req.user.role !== "administrator") return res.redirect("/");
+  if (req.path === "/pages/reports.html" && req.user.role !== "administrator") return res.redirect("/dashboard.html");
   next();
 }));
 
