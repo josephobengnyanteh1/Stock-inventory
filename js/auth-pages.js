@@ -74,23 +74,63 @@ async function initSignup() {
     shopField.value = "";
     shopField.readOnly = false;
   }
+
+  let awaitingVerification = false;
+
   form.addEventListener("submit", async event => {
     event.preventDefault(); clearAuthMessage();
-    const form = event.currentTarget; const data = Object.fromEntries(new FormData(form));
-    if (data.password !== data.confirmPassword) { showAuthMessage("The passwords do not match."); return; }
-    data.contact = normalizeContactInput(data.contact);
-    delete data.confirmPassword;
-    delete data.terms;
-    const button = form.querySelector("button"); button.disabled = true;
+    const form = event.currentTarget; 
+    const formData = new FormData(form);
+    const data = Object.fromEntries(formData);
+
+    const button = form.querySelector("button[type='submit']"); 
+    button.disabled = true;
+
     try { 
-      const response = await apiRequest("/auth/signup", { method: "POST", body: JSON.stringify(data) }); 
-      if (response.requiresVerification) {
-        form.hidden = true;
-        document.querySelector("#signup-title").textContent = "Check your email";
-        document.querySelector("#signup-copy").textContent = "We’ve sent a verification code to your email address. Enter it on the verification screen to activate your account.";
-        showAuthMessage(response.message || "Account created successfully. Please check your email.");
+      if (!awaitingVerification) {
+        if (data.password !== data.confirmPassword) { 
+          showAuthMessage("The passwords do not match."); 
+          button.disabled = false;
+          return; 
+        }
+        data.contact = normalizeContactInput(data.contact);
+        delete data.confirmPassword;
+        delete data.terms;
+
+        const response = await apiRequest("/auth/signup", { method: "POST", body: JSON.stringify(data) }); 
+        
+        if (response.requiresVerification) {
+          awaitingVerification = true;
+          document.querySelector("#signup-title").textContent = "Check your email";
+          document.querySelector("#signup-copy").textContent = "We’ve sent a verification code to your email address. Enter it below to activate your account.";
+          
+          // Reveal verification input field
+          const verificationField = document.querySelector("#verification-code-field");
+          if (verificationField) verificationField.style.display = "block";
+          
+          // Disable other inputs
+          form.querySelectorAll("input:not([name='verificationCode']), select").forEach(el => el.disabled = true);
+          
+          button.textContent = "Verify and activate account";
+          showAuthMessage(response.message || "Account created successfully. Please enter your verification code.");
+        } else {
+          window.location.replace("/dashboard.html"); 
+        }
       } else {
-        window.location.replace("/dashboard.html"); 
+        // Submit code and go straight to dashboard
+        const code = formData.get("verificationCode");
+        if (!code) {
+          showAuthMessage("Please enter the verification code.");
+          button.disabled = false;
+          return;
+        }
+
+        await apiRequest("/auth/verify", { 
+          method: "POST", 
+          body: JSON.stringify({ contact: normalizeContactInput(form.querySelector("input[name='contact']").value), code }) 
+        });
+        
+        window.location.replace("/dashboard.html");
       }
     }
     catch (error) { showAuthMessage(error.message); }

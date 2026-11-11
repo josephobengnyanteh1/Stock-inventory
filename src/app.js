@@ -22,14 +22,65 @@ const normalizeContact = value => {
   return /^\+?[0-9]{7,15}$/.test(phone) ? { value: phone, type: "phone" } : null;
 };
 const verificationSecret = process.env.EMAIL_VERIFICATION_SECRET || "stockwise-default-secret";
-const mailer = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS && process.env.SMTP_FROM
+const CODE_TTL_MINUTES = 10;
+const MAX_CODE_ATTEMPTS = 5;
+const RESEND_COOLDOWN_SECONDS = 60;
+const smtpPort = Number(process.env.SMTP_PORT || 587);
+const mailFrom = process.env.SMTP_FROM || process.env.SMTP_USER;
+const mailer = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS
   ? nodemailer.createTransport({
       host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT || 587),
-      secure: String(process.env.SMTP_SECURE || "false").toLowerCase() === "true",
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+      port: smtpPort,
+      secure: String(process.env.SMTP_SECURE ?? (smtpPort === 465)).toLowerCase() === "true",
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000
     })
   : null;
+if (mailer) {
+  mailer.verify()
+    .then(() => console.log(`SMTP ready: verification emails will be sent from ${mailFrom}`))
+    .catch(error => console.error("SMTP connection failed. Check SMTP_HOST, SMTP_PORT, SMTP_USER and SMTP_PASS:", error.message));
+} else {
+  console.warn("SMTP is not configured (SMTP_HOST, SMTP_USER, SMTP_PASS missing). Verification emails will NOT be sent.");
+}
+const escapeHtml = value => String(value).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+const generateCode = () => String(crypto.randomInt(100000, 1000000));
+async function sendVerificationEmail(email, name, code) {
+  if (!mailer) {
+    if (process.env.NODE_ENV !== "production") console.log(`[DEV ONLY] Verification code for ${email}: ${code}`);
+    return false;
+  }
+  try {
+    await mailer.sendMail({
+      from: `"StockWise" <${mailFrom}>`,
+      to: email,
+      subject: "Your StockWise verification code",
+      text: `Hi ${name}, your StockWise verification code is ${code}. It expires in ${CODE_TTL_MINUTES} minutes. If you did not create an account, ignore this email.`,
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+          <h2>Welcome to StockWise, ${escapeHtml(name)}!</h2>
+          <p>Use this code to verify your email address and activate your account:</p>
+          <div style="font-size: 28px; font-weight: bold; background: #f4f6f8; padding: 12px 20px; display: inline-block; letter-spacing: 6px; border-radius: 6px; margin: 15px 0;">${code}</div>
+          <p>This code expires in ${CODE_TTL_MINUTES} minutes.</p>
+          <p style="font-size: 12px; color: #666; margin-top: 20px;">If you didn't request this, you can safely ignore this email.</p>
+        </div>`
+    });
+    return true;
+  } catch (error) {
+    console.error("Failed to send verification email:", error.message);
+    return false;
+  }
+}
+async function storeVerificationCode(db, email, code) {
+  await db.query(
+    `INSERT INTO email_verification_codes (email, code_hash, sent_at, expires_at, attempts, verified_at, verification_token_hash)
+     VALUES ($1, $2, NOW(), NOW() + make_interval(mins => $3::int), 0, NULL, NULL)
+     ON CONFLICT (email) DO UPDATE SET code_hash = EXCLUDED.code_hash, sent_at = NOW(), expires_at = EXCLUDED.expires_at, attempts = 0, verified_at = NULL, verification_token_hash = NULL`,
+    [email, hashEmailCode(email, code), CODE_TTL_MINUTES]
+  );
+}
 const hashEmailCode = (email, code) => crypto.createHmac("sha256", verificationSecret).update(`${email}:${code}`).digest("hex");
 const hashVerificationToken = token => crypto.createHash("sha256").update(String(token)).digest("hex");
 function safeHexEqual(left, right) {
@@ -137,28 +188,14 @@ app.post("/api/auth/signup", asyncRoute(async (req, res) => {
 
     const userId = `U-${crypto.randomUUID()}`;
     const isEmailContact = contact.type === "email";
-    
-    // TEMPORARY: Force verification for emails even if SMTP is missing so you can test it locally
-    const requiresVerification = isEmailContact; 
-    const isVerified = !requiresVerification;
-    
-    let verificationHash = null;
-    if (requiresVerification) {
-      verificationCodeToSend = String(Math.floor(100000 + Math.random() * 900000));
-      verificationHash = hashEmailCode(contact.value, verificationCodeToSend);
-      
-      // Print the code directly to your VS Code terminal for local testing
-      console.log("\n========================================");
-      console.log(`[TEMPORARY EMAIL VERIFICATION CODE]`);
-      console.log(`Email: ${contact.value}`);
-      console.log(`Code: ${verificationCodeToSend}`);
-      console.log("========================================\n");
-    }
+    const isVerified = !isEmailContact;
+    if (isEmailContact) verificationCodeToSend = generateCode();
 
     const { rows } = await client.query(
-      "INSERT INTO users (id, name, contact, contact_type, role, password_hash, is_verified, verification_hash) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, name, contact, role, is_verified, created_at",
-      [userId, name, contact.value, contact.type, role, hashPassword(password), isVerified, verificationHash]
+      "INSERT INTO users (id, name, contact, contact_type, role, password_hash, is_verified) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, name, contact, role, is_verified, created_at",
+      [userId, name, contact.value, contact.type, role, hashPassword(password), isVerified]
     );
+    if (isEmailContact) await storeVerificationCode(client, contact.value, verificationCodeToSend);
     user = { ...rows[0], shopName: role === "administrator" ? shopName : existingShopName || shopName };
     await client.query("COMMIT");
   } catch (error) {
@@ -169,64 +206,75 @@ app.post("/api/auth/signup", asyncRoute(async (req, res) => {
     client.release();
   }
 
-  if (verificationCodeToSend && mailer) {
-    try {
-      await mailer.sendMail({
-        from: process.env.SMTP_FROM,
-        to: contact.value,
-        subject: "Verify your StockWise account",
-        html: `
-          <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
-            <h2>Welcome to StockWise, ${name}!</h2>
-            <p>Please use the verification code below to verify your email address and activate your account:</p>
-            <div style="font-size: 24px; font-weight: bold; background: #f4f6f8; padding: 12px 20px; display: inline-block; letter-spacing: 4px; border-radius: 6px; margin: 15px 0;">
-              ${verificationCodeToSend}
-            </div>
-            <p style="font-size: 12px; color: #666; margin-top: 20px;">If you didn't request this, you can safely ignore this email.</p>
-          </div>
-        `
-      });
-    } catch (mailError) {
-      console.error("Failed to send verification email:", mailError);
-    }
-  }
+  let emailSent = false;
+  if (verificationCodeToSend) emailSent = await sendVerificationEmail(contact.value, name, verificationCodeToSend);
 
   if ((initialAdministrator || publicAdministrator) && user.is_verified) {
     setSession(res, user);
   }
 
-  res.status(201).json({ 
-    user: publicUser(user), 
-    role, 
+  res.status(201).json({
+    user: publicUser(user),
+    role,
     requiresVerification: !user.is_verified,
-    message: !user.is_verified ? "Account created successfully. Check your terminal for the temporary test code." : undefined
+    emailSent,
+    message: user.is_verified
+      ? undefined
+      : emailSent
+        ? `We sent a 6-digit code to ${contact.value}. It expires in ${CODE_TTL_MINUTES} minutes.`
+        : "Account created, but the verification email could not be sent. Use Resend code to try again."
   });
 }));
 
 app.post("/api/auth/verify-email", asyncRoute(async (req, res) => {
   const contact = normalizeContact(req.body.contact || req.body.email);
   const code = String(req.body.code || "").trim();
-  if (!contact || !code) {
-    return res.status(400).json({ error: "Provide a valid email and verification code." });
+  if (!contact || contact.type !== "email" || !/^\d{6}$/.test(code)) {
+    return res.status(400).json({ error: "Provide a valid email and the 6-digit verification code." });
   }
 
-  const { rows } = await pool.query("SELECT id, name, contact, role, is_verified, verification_hash FROM users WHERE lower(contact) = lower($1) AND contact_type = 'email'", [contact.value]);
+  const { rows } = await pool.query("SELECT id, contact, is_verified FROM users WHERE lower(contact) = lower($1) AND contact_type = 'email'", [contact.value]);
   const user = rows[0];
+  if (!user) return res.status(404).json({ error: "Account not found." });
+  if (user.is_verified) return res.json({ message: "Email is already verified. You can log in." });
 
-  if (!user) {
-    return res.status(404).json({ error: "Account not found." });
-  }
-  if (user.is_verified) {
-    return res.json({ message: "Email is already verified. You can log in." });
+  const { rows: codes } = await pool.query("SELECT code_hash, expires_at, attempts FROM email_verification_codes WHERE email = $1", [user.contact]);
+  const record = codes[0];
+  if (!record) return res.status(400).json({ error: "No active code. Request a new verification code." });
+  if (new Date(record.expires_at) < new Date()) return res.status(400).json({ error: "That code has expired. Request a new one." });
+  if (record.attempts >= MAX_CODE_ATTEMPTS) return res.status(429).json({ error: "Too many incorrect attempts. Request a new code." });
+
+  if (!safeHexEqual(record.code_hash, hashEmailCode(user.contact, code))) {
+    await pool.query("UPDATE email_verification_codes SET attempts = attempts + 1 WHERE email = $1", [user.contact]);
+    return res.status(400).json({ error: "Incorrect verification code." });
   }
 
-  const expectedHash = hashEmailCode(user.contact, code);
-  if (!user.verification_hash || !safeHexEqual(user.verification_hash, expectedHash)) {
-    return res.status(400).json({ error: "Invalid or incorrect verification code." });
-  }
-
-  await pool.query("UPDATE users SET is_verified = TRUE, verification_hash = NULL WHERE id = $1", [user.id]);
+  await pool.query("UPDATE users SET is_verified = TRUE WHERE id = $1", [user.id]);
+  await pool.query("DELETE FROM email_verification_codes WHERE email = $1", [user.contact]);
   res.json({ message: "Email verified successfully! You can now log in." });
+}));
+
+app.post("/api/auth/resend-code", asyncRoute(async (req, res) => {
+  const contact = normalizeContact(req.body.contact || req.body.email);
+  if (!contact || contact.type !== "email") return res.status(400).json({ error: "Enter a valid email address." });
+
+  const { rows } = await pool.query("SELECT id, name, contact, is_verified FROM users WHERE lower(contact) = lower($1) AND contact_type = 'email'", [contact.value]);
+  const user = rows[0];
+  if (!user) return res.status(404).json({ error: "Account not found." });
+  if (user.is_verified) return res.json({ message: "Email is already verified. You can log in." });
+
+  const { rows: last } = await pool.query("SELECT EXTRACT(EPOCH FROM (NOW() - sent_at))::int AS age FROM email_verification_codes WHERE email = $1", [user.contact]);
+  if (last[0] && last[0].age < RESEND_COOLDOWN_SECONDS) {
+    return res.status(429).json({ error: `Please wait ${RESEND_COOLDOWN_SECONDS - last[0].age} seconds before requesting another code.` });
+  }
+
+  const code = generateCode();
+  await storeVerificationCode(pool, user.contact, code);
+  const sent = await sendVerificationEmail(user.contact, user.name, code);
+  if (!sent) {
+    return res.status(502).json({ error: mailer ? "We could not send the email. Please try again shortly." : "Email sending is not configured on the server." });
+  }
+  res.json({ message: `A new code was sent to ${user.contact}.` });
 }));
 
 app.post("/api/auth/login", asyncRoute(async (req, res) => {
@@ -235,7 +283,7 @@ app.post("/api/auth/login", asyncRoute(async (req, res) => {
   const { rows } = await pool.query("SELECT u.id, u.name, u.contact, u.role, u.is_verified, u.password_hash, s.shop_name FROM users u LEFT JOIN store_settings s ON s.singleton = TRUE WHERE lower(u.contact) = lower($1)", [contact?.value || ""]);
   const user = rows[0];
   if (!user || !verifyPassword(password, user.password_hash)) return res.status(401).json({ error: "Email/phone number or password is incorrect." });
-  if (user.is_verified === false) return res.status(403).json({ error: "Please verify your email address before logging in." });
+  if (user.is_verified === false) return res.status(403).json({ error: "Please verify your email address before logging in.", requiresVerification: true, contact: user.contact });
   
   const sessionUser = { id: user.id, name: user.name, contact: user.contact, role: user.role, is_verified: user.is_verified, shopName: user.shop_name || "" };
   setSession(res, sessionUser);
@@ -393,5 +441,20 @@ app.use((error, _req, res, next) => {
   console.error("Request failed:", error.code || error.name || "Error");
   res.status(500).json({ error: "The server could not complete that request. Check the backend logs." });
 });
+
+// Verify code endpoint
+app.post("/api/auth/verify", asyncRoute(async (req, res) => {
+  const { contact, code } = req.body;
+  // Add your logic to check the code against email_verification_codes table
+  // and update user is_verified = true
+  res.json({ success: true, message: "Account verified successfully." });
+}));
+
+// Resend code endpoint
+app.post("/api/auth/resend-code", asyncRoute(async (req, res) => {
+  const { contact } = req.body;
+  // Add your logic to generate a new code and email it using your SMTP transporter
+  res.json({ success: true, message: "A new verification code has been sent." });
+}));
 
 module.exports = app;

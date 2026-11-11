@@ -46,6 +46,14 @@
           </label>
           <label class="field">Password<input name="password" type="password" autocomplete="new-password" required minlength="8" placeholder="At least 8 characters"></label>
           <label class="field">Confirm password<input name="confirmPassword" type="password" autocomplete="new-password" required minlength="8" placeholder="Enter your password again"></label>
+          
+          <!-- Verification Code Section (Hidden by default until initial signup is submitted) -->
+          <label class="field" id="verification-code-field" style="display: none;">
+            Verification code
+            <input name="verificationCode" type="text" placeholder="Enter the code sent to your email" maxlength="10">
+            <small class="field-hint">Check your email inbox for the verification code.</small>
+          </label>
+
           <label class="auth-terms"><input type="checkbox" name="terms" value="accepted" required><span>I confirm these details are correct and will use this account for my shop.</span></label>
           <button class="button button-primary button-full auth-submit" type="submit">Create your account</button>
         </form>
