@@ -1,2 +1,60 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="theme-color" content="#14233d"><title>Create account · StockWise</title><link rel="stylesheet" href="css/style.css"></head>
-<body class="auth-page"><main class="auth-card"><a class="brand auth-brand" href="index.html">Stock<span>Wise</span></a><p class="eyebrow" id="signup-eyebrow">ACCOUNT SETUP</p><h1 id="signup-title">Create your account</h1><p class="auth-copy" id="signup-copy">Set up the administrator account for your shop.</p><div id="auth-message" class="message" role="alert" hidden></div><form id="signup-form" class="auth-form"><label class="field">Full name<input name="name" autocomplete="name" required minlength="2" maxlength="80" placeholder="Your name"></label><label class="field">Email or phone number<input name="contact" type="text" autocomplete="username" required placeholder="you@example.com or +233…"></label><label class="field">Shop name<input id="shop-name" name="shopName" autocomplete="organization" required minlength="2" maxlength="120" placeholder="Your shop name"></label><label class="field">What role are you logging in as?<select id="signup-role" name="role" required><option value="administrator">Administrator</option><option value="sales_manager">Sales Manager</option></select></label><label class="field">Password<input name="password" type="password" autocomplete="new-password" required minlength="8" placeholder="At least 8 characters"></label><label class="field">Confirm password<input name="confirmPassword" type="password" autocomplete="new-password" required minlength="8" placeholder="Enter the password again"></label><button class="button button-primary button-full" type="submit">Create administrator account</button></form><p class="auth-footnote">Already have an account? <a href="login.html">Log in</a></p><p class="auth-security">The first account is the administrator. Administrators can register additional administrators and multiple sales managers for the shop.</p></main><script src="js/api.js"></script><script src="js/auth-pages.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#f5f7fb">
+  <title>Create account · StockWise</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="auth-flow-page">
+  <main class="auth-flow-shell">
+    <section class="auth-promo" aria-label="StockWise benefits">
+      <a class="brand auth-flow-brand" href="/">Stock<span>Wise</span></a>
+      <div class="auth-promo-copy">
+        <p class="eyebrow">INVENTORY, MADE CLEAR</p>
+        <h2>Everything your shop needs to stay in stock.</h2>
+        <ul class="auth-benefits">
+          <li><span>▤</span> Track products and quantities</li>
+          <li><span>↗</span> Record sales as they happen</li>
+          <li><span>!</span> Catch low stock early</li>
+        </ul>
+      </div>
+      <div class="auth-illustration" aria-hidden="true">
+        <div class="shelf shelf-one"><i></i><i></i><i></i><i></i></div>
+        <div class="shelf shelf-two"><i></i><i></i><i></i></div>
+        <span class="illustration-label">Your inventory, organized</span>
+      </div>
+    </section>
+    <section class="auth-form-pane">
+      <div class="auth-form-wrap">
+        <a class="brand auth-mobile-brand" href="/">Stock<span>Wise</span></a>
+        <p class="eyebrow" id="signup-eyebrow">ACCOUNT SETUP</p>
+        <h1 id="signup-title">Let’s get started</h1>
+        <p class="auth-copy" id="signup-copy">Set up the administrator account for your shop.</p>
+        <div id="auth-message" class="message" role="alert" hidden></div>
+        <form id="signup-form" class="auth-form" hidden>
+          <label class="field">Full name<input name="name" autocomplete="name" required minlength="2" maxlength="80" placeholder="Your name"></label>
+          <label class="field">Email address or phone number<input name="contact" type="text" autocomplete="username" required placeholder="you@example.com or +233…"><small class="field-hint">Phone numbers without a country prefix use +233.</small></label>
+          <label class="field">Shop name<input id="shop-name" name="shopName" autocomplete="organization" required minlength="2" maxlength="120" placeholder="Your shop name"></label>
+          <label class="field">Account type
+            <select id="signup-role" name="role" required>
+              <option value="" selected disabled>Select account type</option>
+              <option value="administrator">Administrator</option>
+              <option value="sales_manager">Sales manager</option>
+            </select>
+          </label>
+          <label class="field">Password<input name="password" type="password" autocomplete="new-password" required minlength="8" placeholder="At least 8 characters"></label>
+          <label class="field">Confirm password<input name="confirmPassword" type="password" autocomplete="new-password" required minlength="8" placeholder="Enter your password again"></label>
+          <label class="auth-terms"><input type="checkbox" name="terms" value="accepted" required><span>I confirm these details are correct and will use this account for my shop.</span></label>
+          <button class="button button-primary button-full auth-submit" type="submit">Create your account</button>
+        </form>
+        <p class="auth-switch">Already have an account? <a href="login.html">Log in</a></p>
+        <p class="auth-security">New public signups create administrator accounts. Administrators register sales manager accounts.</p>
+      </div>
+    </section>
+  </main>
+  <script src="js/api.js"></script>
+  <script src="js/auth-pages.js"></script>
+</body>
+</html>

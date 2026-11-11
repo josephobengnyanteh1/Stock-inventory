@@ -153,8 +153,7 @@ async function bootApp() {
   const controls = document.createElement("div"); controls.className = "auth-controls";
   const status = await apiRequest("/auth/status");
   if (status.managerRegistrationOpen) {
-    const managerLink = document.createElement("a"); managerLink.className = "button button-light"; managerLink.href = `${root}signup.html?role=sales_manager`; managerLink.textContent = "＋ Register sales manager"; controls.append(managerLink);
-    const adminLink = document.createElement("a"); adminLink.className = "button button-light"; adminLink.href = `${root}signup.html?role=administrator`; adminLink.textContent = "＋ Register administrator"; controls.append(adminLink);
+    const managerLink = document.createElement("a"); managerLink.className = "button button-primary"; managerLink.href = `${root}signup.html?role=sales_manager`; managerLink.textContent = "＋ Register sales manager"; controls.append(managerLink);
   }
   const identity = document.createElement("span"); identity.className = "signed-in-user"; identity.innerHTML = `<strong>${esc(currentUser.name)}</strong><small>${currentUser.role === "administrator" ? "Administrator" : "Sales manager"}</small>`;
   const logout = document.createElement("button"); logout.type = "button"; logout.className = "button button-light"; logout.textContent = "Log out";

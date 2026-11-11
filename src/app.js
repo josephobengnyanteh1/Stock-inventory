@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const crypto = require("crypto");
+const nodemailer = require("nodemailer");
 const { pool } = require("./db");
 
 const app = express();
@@ -20,7 +21,23 @@ const normalizeContact = value => {
   const phone = contact.replace(/[\s().-]/g, "");
   return /^\+?[0-9]{7,15}$/.test(phone) ? { value: phone, type: "phone" } : null;
 };
-const publicUser = user => ({ id: user.id, name: user.name, contact: user.contact, role: user.role, shopName: user.shopName || "" });
+const verificationSecret = process.env.EMAIL_VERIFICATION_SECRET || "stockwise-default-secret";
+const mailer = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS && process.env.SMTP_FROM
+  ? nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT || 587),
+      secure: String(process.env.SMTP_SECURE || "false").toLowerCase() === "true",
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+    })
+  : null;
+const hashEmailCode = (email, code) => crypto.createHmac("sha256", verificationSecret).update(`${email}:${code}`).digest("hex");
+const hashVerificationToken = token => crypto.createHash("sha256").update(String(token)).digest("hex");
+function safeHexEqual(left, right) {
+  const a = Buffer.from(String(left || ""), "hex");
+  const b = Buffer.from(String(right || ""), "hex");
+  return a.length === b.length && a.length > 0 && crypto.timingSafeEqual(a, b);
+}
+const publicUser = user => ({ id: user.id, name: user.name, contact: user.contact, role: user.role, shopName: user.shopName || "", isVerified: user.is_verified });
 function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
   return `${salt}:${crypto.scryptSync(password, salt, 64).toString("hex")}`;
 }
@@ -60,8 +77,8 @@ app.use(asyncRoute(async (req, _res, next) => {
   const token = cookie?.slice(sessionCookie.length + 1);
   const userId = token && sessions.get(token);
   if (userId) {
-    const { rows } = await pool.query("SELECT u.id, u.name, u.contact, u.role, s.shop_name FROM users u LEFT JOIN store_settings s ON s.singleton = TRUE WHERE u.id = $1", [userId]);
-    if (rows[0]) req.user = { id: rows[0].id, name: rows[0].name, contact: rows[0].contact, role: rows[0].role, shopName: rows[0].shop_name || "" };
+    const { rows } = await pool.query("SELECT u.id, u.name, u.contact, u.role, u.is_verified, s.shop_name FROM users u LEFT JOIN store_settings s ON s.singleton = TRUE WHERE u.id = $1", [userId]);
+    if (rows[0]) req.user = { id: rows[0].id, name: rows[0].name, contact: rows[0].contact, role: rows[0].role, is_verified: rows[0].is_verified, shopName: rows[0].shop_name || "" };
     else sessions.delete(token);
   }
   next();
@@ -90,6 +107,9 @@ app.post("/api/auth/signup", asyncRoute(async (req, res) => {
   let user;
   let role;
   let initialAdministrator = false;
+  let publicAdministrator = false;
+  let verificationCodeToSend = null;
+
   try {
     await client.query("BEGIN");
     await client.query("SELECT pg_advisory_xact_lock($1::bigint)", [74190261]);
@@ -101,15 +121,44 @@ app.post("/api/auth/signup", asyncRoute(async (req, res) => {
       role = "administrator";
       initialAdministrator = true;
       await client.query("INSERT INTO store_settings (singleton, shop_name) VALUES (TRUE, $1) ON CONFLICT (singleton) DO UPDATE SET shop_name = EXCLUDED.shop_name", [shopName]);
+    } else if (adminExists && !req.user && requestedRole === "administrator" && existingShopName && shopName.toLowerCase() === existingShopName.toLowerCase()) {
+      role = "administrator";
+      publicAdministrator = true;
     } else if (adminExists && req.user?.role === "administrator" && ["administrator", "sales_manager"].includes(requestedRole) && (!existingShopName || shopName.toLowerCase() === existingShopName.toLowerCase())) {
       role = requestedRole;
       if (!existingShopName) await client.query("INSERT INTO store_settings (singleton, shop_name) VALUES (TRUE, $1) ON CONFLICT (singleton) DO NOTHING", [shopName]);
     } else {
       await client.query("ROLLBACK");
+      if (adminExists && !req.user && requestedRole === "administrator" && existingShopName && shopName.toLowerCase() !== existingShopName.toLowerCase()) {
+        return res.status(400).json({ error: "Enter the existing shop name exactly to create an administrator account for this store." });
+      }
       return res.status(403).json({ error: adminExists ? "Only an administrator can register accounts for this shop." : "Account setup is unavailable." });
     }
+
     const userId = `U-${crypto.randomUUID()}`;
-    const { rows } = await client.query("INSERT INTO users (id, name, contact, contact_type, role, password_hash) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, name, contact, role, created_at", [userId, name, contact.value, contact.type, role, hashPassword(password)]);
+    const isEmailContact = contact.type === "email";
+    
+    // TEMPORARY: Force verification for emails even if SMTP is missing so you can test it locally
+    const requiresVerification = isEmailContact; 
+    const isVerified = !requiresVerification;
+    
+    let verificationHash = null;
+    if (requiresVerification) {
+      verificationCodeToSend = String(Math.floor(100000 + Math.random() * 900000));
+      verificationHash = hashEmailCode(contact.value, verificationCodeToSend);
+      
+      // Print the code directly to your VS Code terminal for local testing
+      console.log("\n========================================");
+      console.log(`[TEMPORARY EMAIL VERIFICATION CODE]`);
+      console.log(`Email: ${contact.value}`);
+      console.log(`Code: ${verificationCodeToSend}`);
+      console.log("========================================\n");
+    }
+
+    const { rows } = await client.query(
+      "INSERT INTO users (id, name, contact, contact_type, role, password_hash, is_verified, verification_hash) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, name, contact, role, is_verified, created_at",
+      [userId, name, contact.value, contact.type, role, hashPassword(password), isVerified, verificationHash]
+    );
     user = { ...rows[0], shopName: role === "administrator" ? shopName : existingShopName || shopName };
     await client.query("COMMIT");
   } catch (error) {
@@ -119,20 +168,80 @@ app.post("/api/auth/signup", asyncRoute(async (req, res) => {
   } finally {
     client.release();
   }
-  if (initialAdministrator) setSession(res, user);
-  res.status(201).json({ user: publicUser(user), role });
+
+  if (verificationCodeToSend && mailer) {
+    try {
+      await mailer.sendMail({
+        from: process.env.SMTP_FROM,
+        to: contact.value,
+        subject: "Verify your StockWise account",
+        html: `
+          <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+            <h2>Welcome to StockWise, ${name}!</h2>
+            <p>Please use the verification code below to verify your email address and activate your account:</p>
+            <div style="font-size: 24px; font-weight: bold; background: #f4f6f8; padding: 12px 20px; display: inline-block; letter-spacing: 4px; border-radius: 6px; margin: 15px 0;">
+              ${verificationCodeToSend}
+            </div>
+            <p style="font-size: 12px; color: #666; margin-top: 20px;">If you didn't request this, you can safely ignore this email.</p>
+          </div>
+        `
+      });
+    } catch (mailError) {
+      console.error("Failed to send verification email:", mailError);
+    }
+  }
+
+  if ((initialAdministrator || publicAdministrator) && user.is_verified) {
+    setSession(res, user);
+  }
+
+  res.status(201).json({ 
+    user: publicUser(user), 
+    role, 
+    requiresVerification: !user.is_verified,
+    message: !user.is_verified ? "Account created successfully. Check your terminal for the temporary test code." : undefined
+  });
+}));
+
+app.post("/api/auth/verify-email", asyncRoute(async (req, res) => {
+  const contact = normalizeContact(req.body.contact || req.body.email);
+  const code = String(req.body.code || "").trim();
+  if (!contact || !code) {
+    return res.status(400).json({ error: "Provide a valid email and verification code." });
+  }
+
+  const { rows } = await pool.query("SELECT id, name, contact, role, is_verified, verification_hash FROM users WHERE lower(contact) = lower($1) AND contact_type = 'email'", [contact.value]);
+  const user = rows[0];
+
+  if (!user) {
+    return res.status(404).json({ error: "Account not found." });
+  }
+  if (user.is_verified) {
+    return res.json({ message: "Email is already verified. You can log in." });
+  }
+
+  const expectedHash = hashEmailCode(user.contact, code);
+  if (!user.verification_hash || !safeHexEqual(user.verification_hash, expectedHash)) {
+    return res.status(400).json({ error: "Invalid or incorrect verification code." });
+  }
+
+  await pool.query("UPDATE users SET is_verified = TRUE, verification_hash = NULL WHERE id = $1", [user.id]);
+  res.json({ message: "Email verified successfully! You can now log in." });
 }));
 
 app.post("/api/auth/login", asyncRoute(async (req, res) => {
   const contact = normalizeContact(req.body.contact || req.body.email);
   const password = typeof req.body.password === "string" ? req.body.password : "";
-  const { rows } = await pool.query("SELECT u.id, u.name, u.contact, u.role, u.password_hash, s.shop_name FROM users u LEFT JOIN store_settings s ON s.singleton = TRUE WHERE lower(u.contact) = lower($1)", [contact?.value || ""]);
+  const { rows } = await pool.query("SELECT u.id, u.name, u.contact, u.role, u.is_verified, u.password_hash, s.shop_name FROM users u LEFT JOIN store_settings s ON s.singleton = TRUE WHERE lower(u.contact) = lower($1)", [contact?.value || ""]);
   const user = rows[0];
   if (!user || !verifyPassword(password, user.password_hash)) return res.status(401).json({ error: "Email/phone number or password is incorrect." });
-  const sessionUser = { id: user.id, name: user.name, contact: user.contact, role: user.role, shopName: user.shop_name || "" };
+  if (user.is_verified === false) return res.status(403).json({ error: "Please verify your email address before logging in." });
+  
+  const sessionUser = { id: user.id, name: user.name, contact: user.contact, role: user.role, is_verified: user.is_verified, shopName: user.shop_name || "" };
   setSession(res, sessionUser);
   res.json({ user: publicUser(sessionUser) });
 }));
+
 app.post("/api/auth/logout", (req, res) => {
   const cookie = req.headers.cookie?.split(";").map(part => part.trim()).find(part => part.startsWith(`${sessionCookie}=`));
   if (cookie) sessions.delete(cookie.slice(sessionCookie.length + 1));
@@ -271,8 +380,7 @@ app.use(asyncRoute(async (req, res, next) => {
     return next();
   }
   if (req.path === "/signup.html") {
-    if (!adminExists || req.user?.role === "administrator") return next();
-    return res.redirect(req.user ? "/" : "/login.html");
+    return next();
   }
   if (!req.user) return res.redirect(adminExists ? "/login.html" : "/signup.html");
   if (req.path === "/pages/reports.html" && req.user.role !== "administrator") return res.redirect("/dashboard.html");
