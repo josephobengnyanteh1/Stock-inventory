@@ -1,164 +1,35 @@
-# StockWise Inventory and Sales Management System
+# StockWise — Stock Inventory & Sales Management (PHP + MySQL)
 
-StockWise is a browser-based inventory and sales management system for a small shop. It helps authorized staff maintain a product catalogue, record stock-aware sales, monitor low-stock items, and review sales activity and reports.
+## Run it (XAMPP / WAMP / Laragon)
+1. Copy this folder into `htdocs` (XAMPP) or `www` (WAMP), e.g. `C:\xampp\htdocs\stockwise`.
+2. Start **Apache** and **MySQL** in the XAMPP control panel.
+3. Open **http://localhost/stockwise/** in your browser.
 
-The project uses a browser interface, a Node.js and Express API, and PostgreSQL hosted on Neon. It is designed for one shop with an administrator and one sales manager.
+The database (`stockwise`) and all tables are created automatically on first visit.
+Prefer manual setup? Import `database.sql` in phpMyAdmin instead.
 
-## Features
+Default MySQL settings (user `root`, no password) are in `config.php` — change them if yours differ.
 
-- First-time shop and administrator setup
-- Secure login and logout with an email address or phone number
-- Administrator registration of one sales manager
-- Product catalogue management with search and stock levels
-- Role-aware access: product maintenance and reports are restricted to administrators
-- Point-of-sale checkout with Cash, Card, and Mobile money recording
-- Transactional stock deduction that prevents overselling
-- Dashboard summaries for products, units in stock, today's sales, recent activity, and low-stock products
-- Sales history and administrator reporting, including gross profit
+No XAMPP? With PHP 8.1+ and MySQL installed: `php -S localhost:8000` inside this folder.
 
-## User roles
+## First use
+- The first visit shows **Set up your shop**: this creates the administrator account.
+- After that, only an administrator can add team members (Team page).
 
-| Role | Access |
-| --- | --- |
-| Administrator | Sets up the shop, manages products, registers the sales manager, records sales, and views full dashboard and reports. |
-| Sales manager | Signs in, views and searches products, records sales, and sees the operational dashboard. |
+## Roles
+| | Administrator | Sales manager |
+|---|---|---|
+| Dashboard, Sales | ✓ | ✓ |
+| View products | ✓ | ✓ |
+| Add / edit / delete products | ✓ | – |
+| Reports & profit figures | ✓ | – |
+| Manage team accounts | ✓ | – |
 
-## Technology
-
-| Layer | Technology |
-| --- | --- |
-| Frontend | HTML, CSS, and browser JavaScript |
-| Backend | Node.js and Express |
-| Database | PostgreSQL on Neon |
-| Authentication | HTTP-only session cookie and server-side sessions |
-
-## Project structure
-
-```text
-.
-├── index.html, login.html, signup.html   # Dashboard and authentication pages
-├── pages/                                # Products, sales, and reports pages
-├── css/                                  # Shared application styles
-├── js/                                   # Browser behavior and API requests
-├── src/
-│   ├── app.js                            # Express app, API routes, and role checks
-│   ├── db.js                             # PostgreSQL connection and schema initialization
-│   └── server.js                         # Server startup
-├── database/schema.sql                   # Tables, constraints, and indexes
-├── .env.example                          # Environment-variable template
-└── package.json                          # Dependencies and scripts
-```
-
-## Prerequisites
-
-- Node.js and npm
-- A Neon PostgreSQL database, or another reachable PostgreSQL instance
-- A valid PostgreSQL connection string
-
-## Local setup
-
-1. Clone the repository and open a terminal in the project folder.
-
-   ```bash
-   git clone <your-repository-url>
-   cd <your-project-folder>
-   ```
-
-2. Install dependencies.
-
-   ```bash
-   npm install
-   ```
-
-3. Create a private environment file.
-
-   **Windows PowerShell:**
-
-   ```powershell
-   Copy-Item .env.example .env
-   ```
-
-4. Open `.env` and replace the example `DATABASE_URL` with the complete connection string from Neon.
-
-   ```env
-   DATABASE_URL=postgresql://user:password@your-neon-host/database?sslmode=require
-   PORT=3000
-   NODE_ENV=development
-   ```
-
-5. Start the application.
-
-   ```bash
-   npm run dev
-   ```
-
-6. Open [http://localhost:3000](http://localhost:3000) in your browser. On first use, create the administrator account and shop.
-
-## Environment variables
-
-| Variable | Required | Description |
-| --- | --- | --- |
-| `DATABASE_URL` | Yes | PostgreSQL connection URI. Keep it private. |
-| `PORT` | No | HTTP port. Defaults to `3000`. |
-| `NODE_ENV` | No | Set to `production` for production cookie settings. |
-
-Never commit `.env`, database passwords, session keys, or other secrets to GitHub.
-
-## How checkout protects stock
-
-When a sale is submitted, StockWise validates the selected items, starts a database transaction, locks the relevant product records, checks availability, saves the sale and its item records, then reduces stock. If an item has insufficient stock, the sale is rejected and no quantities are changed.
-
-Products are flagged as low stock when their quantity is at or below the reorder level.
-
-## API overview
-
-| Method | Endpoint | Access | Purpose |
-| --- | --- | --- | --- |
-| `GET` | `/api/health` | Public | Check backend health. |
-| `POST` | `/api/auth/signup` | Conditional | Create the first administrator or register the sales manager. |
-| `POST` | `/api/auth/login` | Public | Sign in with email/phone and password. |
-| `POST` | `/api/auth/logout` | Session | End the current session. |
-| `GET` | `/api/products` | Session | List, search, and filter products. |
-| `POST` | `/api/products` | Administrator | Create a product. |
-| `PUT` | `/api/products/:id` | Administrator | Update a product. |
-| `DELETE` | `/api/products/:id` | Administrator | Delete a product while preserving sale history. |
-| `GET` | `/api/sales` | Session | List recent sales. |
-| `POST` | `/api/sales` | Administrator or sales manager | Complete a stock-aware sale. |
-| `GET` | `/api/dashboard/summary` | Session | Load dashboard metrics. |
-| `GET` | `/api/reports/summary` | Administrator | Load management reporting and gross profit. |
+## Structure
+- `includes/` – database connection, authentication/helpers, shared layout
+- `*.php` – pages (login, signup, dashboard, products, sales, reports, team)
+- `assets/` – CSS and JavaScript
+- `database.sql` – MySQL schema
 
 ## Security notes
-
-- Passwords are stored as salted scrypt hashes.
-- Session tokens are stored in HTTP-only cookies with `SameSite=Lax`.
-- API routes enforce authentication and role checks on the server.
-- Database queries use parameters to protect against SQL injection.
-- Database constraints, transactions, and row locks protect product and sale data.
-- Keep the real `DATABASE_URL` in `.env` or hosting-provider secret settings only.
-
-## Common problems
-
-| Problem | What to do |
-| --- | --- |
-| `getaddrinfo ENOTFOUND HOST` | The database host is still a placeholder. Copy the full Neon connection URI into `.env`. |
-| `Cannot find module 'express'` | Run `npm install` in the folder containing `package.json`. |
-| `Cannot GET /` | Start the server from the project root with `npm run dev` and open `http://localhost:3000`. |
-| `Request failed (404)` | Confirm that the browser API path matches an implemented API route. |
-| The page will not load | Check the terminal output, confirm the configured port, and make sure the server is running. |
-
-## Current limitations and next steps
-
-- Configure and verify a valid Neon `DATABASE_URL` before relying on persistent storage.
-- Add automated unit and integration tests for authentication, permissions, sales, and stock concurrency.
-- Use versioned database migrations and test backup and restore procedures.
-- Use a persistent session store for production deployments.
-- Restrict CORS to approved frontend origins and add login rate limiting.
-- Consider suppliers, stock receiving, returns, audit logs, exports, and configurable reports.
-
-## Documentation
-
-The detailed project documentation describes requirements, system architecture, the database model, user guide, verification plan, and future development. Keep that document in the repository's `docs/` folder, for example as `docs/StockWise_Project_Documentation.docx`.
-
-## License
-
-Add the license chosen by the project team, for example MIT, before publishing the repository.
+Passwords use `password_hash`, all queries are prepared statements, forms are CSRF-protected, output is escaped, and stock changes during a sale run in a locked transaction.
