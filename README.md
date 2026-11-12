@@ -1,35 +1,35 @@
-# StockWise — Stock Inventory & Sales Management (PHP + MySQL)
+# StockWise
 
-## Run it (XAMPP / WAMP / Laragon)
-1. Copy this folder into `htdocs` (XAMPP) or `www` (WAMP), e.g. `C:\xampp\htdocs\stockwise`.
-2. Start **Apache** and **MySQL** in the XAMPP control panel.
-3. Open **http://localhost/stockwise/** in your browser.
-
-The database (`stockwise`) and all tables are created automatically on first visit.
-Prefer manual setup? Import `database.sql` in phpMyAdmin instead.
-
-Default MySQL settings (user `root`, no password) are in `config.php` — change them if yours differ.
-
-No XAMPP? With PHP 8.1+ and MySQL installed: `php -S localhost:8000` inside this folder.
-
-## First use
-- The first visit shows **Set up your shop**: this creates the administrator account.
-- After that, only an administrator can add team members (Team page).
+Stock inventory website. Node.js (Express) server, Supabase (Auth + Postgres), plain HTML/CSS/JS frontend.
 
 ## Roles
-| | Administrator | Sales manager |
+| Action | Admin | Sales manager |
 |---|---|---|
-| Dashboard, Sales | ✓ | ✓ |
-| View products | ✓ | ✓ |
-| Add / edit / delete products | ✓ | – |
-| Reports & profit figures | ✓ | – |
-| Manage team accounts | ✓ | – |
+| Create account / verify email | yes (public sign up) | created by admin |
+| View dashboard | full business view | own sales only |
+| Add, edit, delete products | yes | no |
+| See product cost and stock value | yes | no |
+| Record sales | yes | yes |
+| View sales | all | own |
+| Add or remove sales managers | yes | no |
 
-## Structure
-- `includes/` – database connection, authentication/helpers, shared layout
-- `*.php` – pages (login, signup, dashboard, products, sales, reports, team)
-- `assets/` – CSS and JavaScript
-- `database.sql` – MySQL schema
+There is no default admin. Anyone who creates an account becomes the admin of their own business.
+Rules are enforced on the server (`server.js`), not just hidden in the UI.
 
-## Security notes
-Passwords use `password_hash`, all queries are prepared statements, forms are CSRF-protected, output is escaped, and stock changes during a sale run in a locked transaction.
+## Setup
+1. Create a project at https://supabase.com.
+2. Supabase -> SQL Editor -> paste `supabase/schema.sql` -> Run.
+3. Supabase -> Authentication -> Sign In / Providers -> Email: keep "Confirm email" ON.
+4. Supabase -> Authentication -> URL Configuration:
+   - Site URL: `http://localhost:3000`
+   - Redirect URLs: add `http://localhost:3000/verify.html`
+   (when you deploy, add your live URL and its `/verify.html` too)
+5. Copy `.env.example` to `.env` and fill in the URL, anon key and service role key (Project Settings -> API).
+6. Install and run:
+   ```
+   npm install
+   npm run dev
+   ```
+7. Open http://localhost:3000, click "Create an account", verify the email, and you land on the dashboard.
+
+Supabase's built-in email sender has a low hourly limit. For heavier use, add your own SMTP under Authentication -> SMTP Settings.
